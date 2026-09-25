@@ -28,10 +28,21 @@ class Ticket(db.Model):
     device = db.Column(db.String(120), nullable=True)
     location = db.Column(db.String(120), nullable=True)
     additional_info = db.Column(db.Text, nullable=True)
+    error_message = db.Column(db.Text, nullable=True)
     email = db.Column(db.String(150), nullable=True)
     affected_users = db.Column(db.Integer, default=1)
     business_impact = db.Column(db.String(80), default='Low')
     downtime = db.Column(db.String(80), default='None')
+    user_selected_category = db.Column(db.String(80), nullable=True)
+    affected_users_range = db.Column(db.String(40), nullable=True)
+    work_blocked = db.Column(db.Boolean, default=False)
+    blocked_activity = db.Column(db.String(255), nullable=True)
+    security_impact = db.Column(db.String(40), nullable=True)
+    security_details = db.Column(db.Text, nullable=True)
+    system_criticality = db.Column(db.String(80), nullable=True)
+    started_at = db.Column(db.String(80), nullable=True)
+    deadline = db.Column(db.String(80), nullable=True)
+    user_reported_urgency = db.Column(db.String(40), nullable=True)
 
     # Relationships
     history = db.relationship('TicketHistory', backref='ticket', cascade='all, delete-orphan', lazy='dynamic')
@@ -64,8 +75,19 @@ class Ticket(db.Model):
             'device': self.device,
             'location': self.location,
             'additional_info': self.additional_info,
+            'error_message': self.error_message,
             'email': self.email,
             'affected_users': self.affected_users,
             'business_impact': self.business_impact,
             'downtime': self.downtime,
+            'user_selected_category': self.user_selected_category,
+            'affected_users_range': self.affected_users_range,
+            'work_blocked': self.work_blocked,
+            'blocked_activity': self.blocked_activity,
+            'security_impact': self.security_impact,
+            'security_details': self.security_details,
+            'system_criticality': self.system_criticality,
+            'started_at': self.started_at,
+            'deadline': self.deadline,
+            'user_reported_urgency': self.user_reported_urgency,
         }

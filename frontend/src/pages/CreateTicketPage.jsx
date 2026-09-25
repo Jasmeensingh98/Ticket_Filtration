@@ -1,482 +1,81 @@
-import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import DashboardLayout from '../layouts/DashboardLayout';
-import { api } from '../services/api';
-import { 
-  Sparkles, CheckCircle2, AlertTriangle, ArrowRight, ShieldCheck, 
-  Cpu, Network, BookOpen, Clock, FileUp, Info, RefreshCw
+﻿import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import {
+  AlertTriangle, ArrowLeft, ArrowRight, BookOpen, Check, CheckCircle2,
+  ChevronDown, CircleHelp, Clock3, FileText, FileUp, Info, Lightbulb,
+  LoaderCircle, LockKeyhole, MessageSquareText, Pencil, ShieldCheck,
+  Sparkles, Users, X,
 } from 'lucide-react';
+import DashboardLayout from '../layouts/DashboardLayout';
+import { createTicket, uploadAttachment } from '../services/ticketService';
+
+const departments = ['IT', 'HR', 'Finance', 'Sales', 'Operations', 'Marketing', 'Management', 'Other'];
+const systems = ['Laptop', 'Desktop', 'Mobile', 'Printer', 'Email', 'VPN', 'Wi-Fi / Network', 'Application / Software', 'Server', 'Cloud Service', 'Account', 'Other'];
+const locations = ['Office', 'Remote', 'Home', 'Branch Office', 'Other'];
+const categories = ['Hardware', 'Software', 'Network', 'Access Management', 'Other', "I don't know"];
+const fileExtensions = ['png', 'jpg', 'jpeg', 'pdf', 'txt', 'log', 'csv'];
+const affectedRanges = [
+  { value: '1', label: '1', count: 1 }, { value: '2-5', label: '2-5', count: 3 },
+  { value: '6-20', label: '6-20', count: 10 }, { value: '21-50', label: '21-50', count: 35 },
+  { value: '51-100', label: '51-100', count: 75 }, { value: '100+', label: '100+', count: 150 },
+];
+
+const makeForm = (user) => ({
+  title: '', description: '', department: user?.department && departments.includes(user.department) ? user.department : 'IT',
+  device_system: '', device_other: '', location: '', location_other: '', error_message: '', user_selected_category: '',
+  affected_users_range: '', exact_affected_users: '', affected_users: 1, work_blocked: '', blocked_activity: '',
+  business_impact: '', security_impact: '', security_details: '', system_criticality: '', started_at: '',
+  deadline: 'No deadline', specific_deadline: '', user_reported_urgency: 'Medium',
+});
+
+function Field({ label, required, hint, error, children }) {
+  return <div>
+    <label className="mb-2 block text-sm font-semibold text-slate-800">{label} {required && <span className="text-rose-600">*</span>}</label>
+    {children}
+    {hint && <p className="mt-1.5 text-xs leading-5 text-slate-500">{hint}</p>}
+    {error && <p className="mt-1.5 text-xs font-medium text-rose-600" role="alert">{error}</p>}
+  </div>;
+}
+
+function SelectField({ value, onChange, children, required }) {
+  return <div className="relative"><select required={required} value={value} onChange={(event) => onChange(event.target.value)} className="w-full appearance-none rounded-xl border border-slate-300 bg-white px-3.5 py-3 pr-10 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10">{children}</select><ChevronDown size={17} className="pointer-events-none absolute right-3 top-3.5 text-slate-400" /></div>;
+}
+
+function OptionCards({ name, value, options, descriptions = {}, onChange }) {
+  return <div className="grid gap-2 sm:grid-cols-2">{options.map((option) => {
+    const selected = value === option;
+    return <label key={option} className={`cursor-pointer rounded-xl border p-3 transition ${selected ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-500/15' : 'border-slate-200 bg-white hover:border-blue-300 hover:bg-slate-50'}`}>
+      <input type="radio" name={name} value={option} checked={selected} onChange={() => onChange(option)} className="sr-only" />
+      <span className="flex items-start gap-2.5"><span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${selected ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300'}`}>{selected && <Check size={11} strokeWidth={3} />}</span><span><span className="block text-sm font-medium text-slate-800">{option}</span>{descriptions[option] && <span className="mt-0.5 block text-xs leading-5 text-slate-500">{descriptions[option]}</span>}</span></span>
+    </label>;
+  })}</div>;
+}
+
+function Progress({ step }) {
+  return <div className="mb-7 flex items-center gap-2" aria-label={`Step ${step} of 3`}>{['Problem', 'Impact', 'Review'].map((label, index) => {
+    const number = index + 1; const complete = number < step; const current = number === step;
+    return <div key={label} className="flex min-w-0 flex-1 items-center gap-2"><div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ${complete ? 'bg-emerald-600 text-white' : current ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'bg-slate-100 text-slate-400'}`}>{complete ? <Check size={15} /> : number}</div><span className={`hidden truncate text-xs font-semibold sm:block ${current ? 'text-slate-900' : 'text-slate-400'}`}>{label}</span>{number < 3 && <div className={`h-px flex-1 ${complete ? 'bg-emerald-300' : 'bg-slate-200'}`} />}</div>;
+  })}</div>;
+}
+
+function TriagePreview({ result, processing }) {
+  if (processing) return <div className="rounded-2xl border border-blue-200 bg-white p-6 shadow-sm"><div className="mb-6 flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white"><Sparkles size={20} /></div><div><h2 className="font-bold text-slate-900">AI is analyzing your ticket...</h2><p className="text-xs text-slate-500">Processing the information you provided</p></div></div><div className="space-y-4 text-sm">{['Ticket received', 'Text preprocessing', 'Classifying issue', 'Predicting priority', 'Selecting support team', 'Finding relevant solutions'].map((label, index) => <div key={label} className="flex items-center gap-3"><span className={index < 2 ? 'text-emerald-600' : index === 2 ? 'text-blue-600' : 'text-slate-300'}>{index < 2 ? <CheckCircle2 size={18} /> : index === 2 ? <LoaderCircle size={18} className="animate-spin" /> : <span className="block h-2.5 w-2.5 rounded-full bg-current" />}</span><span className={index < 3 ? 'font-medium text-slate-800' : 'text-slate-400'}>{label}</span></div>)}</div></div>;
+  if (!result) return <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><div className="mb-5 flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600"><Sparkles size={20} /></div><div><h2 className="font-bold text-slate-900">AI Triage Preview</h2><p className="text-xs text-slate-500">AI-Assisted Triage</p></div></div><div className="rounded-xl bg-slate-50 p-5 text-center"><Info size={25} className="mx-auto mb-2 text-slate-400" /><p className="text-sm leading-6 text-slate-600">Your AI triage results will appear here after you submit your ticket.</p></div><p className="mt-4 flex items-start gap-2 text-xs leading-5 text-slate-500"><ShieldCheck size={15} className="mt-0.5 shrink-0 text-emerald-600" />Predictions are automated recommendations to help the support team respond faster.</p></div>;
+  const analysis = result.analysis || {}; const ticket = result.ticket || {}; const confidence = (value) => `${Math.round(Number(value || 0) * 100)}%`;
+  return <div className="space-y-4"><div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5"><div className="flex items-start gap-3"><CheckCircle2 className="mt-0.5 shrink-0 text-emerald-600" /><div><h2 className="font-bold text-emerald-900">Your ticket has been submitted</h2><p className="mt-1 text-sm text-emerald-800">Ticket HD-{String(ticket.id).padStart(6, '0')} is ready for support review.</p></div></div></div><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="mb-4 flex items-center justify-between"><h2 className="font-bold text-slate-900">AI Analysis</h2><span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-bold text-indigo-700">{analysis.model_name || 'Demo AI Model'}</span></div><div className="grid gap-3 sm:grid-cols-2"><div className="rounded-xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Predicted category</p><p className="mt-1 font-bold text-slate-900">{analysis.category || ticket.predicted_category || 'Pending'}</p><p className="mt-2 text-xs font-semibold text-blue-600">AI Prediction Â· {confidence(analysis.category_confidence)}</p></div><div className="rounded-xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Predicted priority</p><p className="mt-1 font-bold text-slate-900">{analysis.priority || ticket.priority || 'Pending'}</p><p className="mt-2 text-xs font-semibold text-amber-600">AI Prediction Â· {confidence(analysis.priority_confidence)}</p></div></div></div><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Suggested team</p><p className="mt-1 font-bold text-slate-900">{result.routing?.team || 'Support team pending'}</p><p className="mt-2 text-xs leading-5 text-slate-500">{result.routing?.routing_reason || 'Assignment follows configured support routing rules.'}</p></div><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="mb-3 flex items-center gap-2"><BookOpen size={17} className="text-blue-600" /><h2 className="font-bold text-slate-900">Knowledge base suggestions</h2></div>{(result.suggestions || []).slice(0, 3).map((suggestion, index) => <div key={suggestion.id || index} className="border-t border-slate-100 py-3 first:border-t-0"><div className="flex items-start justify-between gap-3"><p className="text-sm font-semibold text-slate-800">{suggestion.title}</p><span className="shrink-0 text-xs font-bold text-blue-600">{suggestion.match_score}%</span></div><p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{suggestion.solution}</p></div>)}{!result.suggestions?.length && <p className="text-sm text-slate-500">No matching articles were found.</p>}<p className="mt-3 text-xs leading-5 text-slate-500">These suggestions are automated recommendations. Follow your organization's IT procedures.</p></div><Link to={`/tickets/${ticket.id}`} className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700">View ticket details <ArrowRight size={16} /></Link></div>;
+}
 
 export default function CreateTicketPage({ user }) {
-  const navigate = useNavigate();
-  const [form, setForm] = useState({
-    title: '',
-    description: '',
-    user_name: user?.name || 'Demo User',
-    email: user?.email || 'user@demo.com',
-    department: user?.department || 'IT Support',
-    category: '',
-    device: 'MacBook Pro / Workstation',
-    location: 'Building 4, Floor 2',
-    affected_users: 1,
-    business_impact: 'Low',
-    downtime: 'None',
-    additional_information: '',
-  });
-
-  const [attachmentName, setAttachmentName] = useState('');
-  const [processing, setProcessing] = useState(false);
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState('');
-
-  const samplePresets = [
-    {
-      label: 'VPN Outage (Network / High)',
-      title: 'VPN gateway connection drop for remote engineers',
-      description: 'Multiple remote workers cannot maintain IPSec VPN tunnels. Authentication loops after MFA and drops connection every 3 minutes.',
-      category: '',
-      affected_users: 25,
-      business_impact: 'High',
-      downtime: 'Partial',
-      device: 'Cisco AnyConnect / FortiClient',
-    },
-    {
-      label: 'Laptop Won\'t Power (Hardware / Critical)',
-      title: 'Executive laptop completely dead, will not turn on',
-      description: 'ThinkPad workstation has no power LED. Tested with known good 100W USB-C charger. Executive meeting scheduled in 90 minutes.',
-      category: '',
-      affected_users: 1,
-      business_impact: 'Critical',
-      downtime: 'Total Outage',
-      device: 'Lenovo ThinkPad X1 Carbon',
-    },
-    {
-      label: 'Password Lockout (IAM / High)',
-      title: 'Active Directory account locked after credential change',
-      description: 'Cannot sign into company email or SSO dashboard. Account was locked after three failed attempts on mobile client.',
-      category: '',
-      affected_users: 1,
-      business_impact: 'Medium',
-      downtime: 'Partial',
-      device: 'Single Sign-On / Active Directory',
-    }
-  ];
-
-  const applyPreset = (preset) => {
-    setForm(prev => ({ ...prev, ...preset }));
-    setResult(null);
-  };
-
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setAttachmentName(file.name);
-    }
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    setProcessing(true);
-    setResult(null);
-
-    try {
-      const res = await api.post('/tickets', {
-        ...form,
-        attachment_name: attachmentName
-      });
-      setResult(res.data);
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to submit ticket. Please check your network connection.');
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  return (
-    <DashboardLayout user={user} title="Submit Support Ticket">
-      {/* Sample Presets for Viva / Research Demonstrations */}
-      <div className="mb-6 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/80 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Sparkles size={18} className="text-blue-600" />
-            <span className="text-xs font-bold uppercase tracking-wider text-blue-900">
-              Demo Presets for Testing AI Pipeline:
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {samplePresets.map((preset, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => applyPreset(preset)}
-                className="px-3 py-1.5 rounded-lg bg-white border border-blue-200 text-xs font-semibold text-blue-700 hover:bg-blue-600 hover:text-white transition shadow-sm"
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-8 xl:grid-cols-[1.5fr_1fr]">
-        {/* Ticket Form */}
-        <div className="card p-7">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-lg font-bold text-slate-900">Incident Details</h2>
-              <p className="text-xs text-slate-500">Provide details for transformer NLP classification & XGBoost triage.</p>
-            </div>
-            <span className="text-xs px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 font-medium">
-              Step 1 of 2
-            </span>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div>
-              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-700">
-                Ticket Title <span className="text-rose-500">*</span>
-              </label>
-              <input
-                value={form.title}
-                onChange={(e) => setForm({ ...form, title: e.target.value })}
-                className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                placeholder="Brief summary of the issue..."
-                required
-              />
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-700">
-                Detailed Description <span className="text-rose-500">*</span>
-              </label>
-              <textarea
-                rows="4"
-                value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
-                className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                placeholder="Explain the symptoms, error codes, steps to reproduce, or affected systems..."
-                required
-              />
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-700">User Name</label>
-                <input
-                  value={form.user_name}
-                  onChange={(e) => setForm({ ...form, user_name: e.target.value })}
-                  className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-700">Email Address</label>
-                <input
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-700">Department</label>
-                <input
-                  value={form.department}
-                  onChange={(e) => setForm({ ...form, department: e.target.value })}
-                  className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-700">
-                  Category <span className="text-slate-400 font-normal">(Optional - AI will classify)</span>
-                </label>
-                <select
-                  value={form.category}
-                  onChange={(e) => setForm({ ...form, category: e.target.value })}
-                  className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
-                >
-                  <option value="">Auto-predict via AI Model</option>
-                  <option value="Hardware">Hardware</option>
-                  <option value="Software">Software</option>
-                  <option value="Network">Network</option>
-                  <option value="Access Management">Access Management</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Urgency Indicators for XGBoost Model */}
-            <div className="rounded-2xl bg-slate-50 p-4 border border-slate-200">
-              <p className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-3 flex items-center gap-1.5">
-                <Cpu size={15} className="text-blue-600" />
-                Urgency & Impact Signals for XGBoost Model
-              </p>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div>
-                  <label className="mb-1 block text-xs text-slate-600">Affected Users</label>
-                  <select
-                    value={form.affected_users}
-                    onChange={(e) => setForm({ ...form, affected_users: Number(e.target.value) })}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-blue-500"
-                  >
-                    <option value={1}>Single user (1)</option>
-                    <option value={5}>Small group (2-10)</option>
-                    <option value={35}>Team / Department (10-50)</option>
-                    <option value={150}>Entire Organization (50+)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-xs text-slate-600">Business Impact</label>
-                  <select
-                    value={form.business_impact}
-                    onChange={(e) => setForm({ ...form, business_impact: e.target.value })}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-blue-500"
-                  >
-                    <option value="Low">Low - Minor Inconvenience</option>
-                    <option value="Medium">Medium - Workflow Slowdown</option>
-                    <option value="High">High - Core Process Impaired</option>
-                    <option value="Critical">Critical - Production Outage</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-xs text-slate-600">System Downtime</label>
-                  <select
-                    value={form.downtime}
-                    onChange={(e) => setForm({ ...form, downtime: e.target.value })}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-blue-500"
-                  >
-                    <option value="None">None - System Online</option>
-                    <option value="Partial">Partial - Intermittent</option>
-                    <option value="Total Outage">Total Outage - System Down</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-700">Device / System</label>
-                <input
-                  value={form.device}
-                  onChange={(e) => setForm({ ...form, device: e.target.value })}
-                  className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-700">Location</label>
-                <input
-                  value={form.location}
-                  onChange={(e) => setForm({ ...form, location: e.target.value })}
-                  className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-700">Attachment (Screenshot or Logs)</label>
-              <div className="flex items-center gap-3">
-                <label className="cursor-pointer flex items-center gap-2 rounded-xl border border-slate-300 bg-slate-50 px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition">
-                  <FileUp size={16} />
-                  Choose File
-                  <input type="file" onChange={handleFileUpload} className="hidden" />
-                </label>
-                <span className="text-xs text-slate-500">
-                  {attachmentName ? attachmentName : 'No file chosen (PNG, JPG, LOG max 10MB)'}
-                </span>
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-700">Additional Information</label>
-              <textarea
-                rows="2"
-                value={form.additional_information}
-                onChange={(e) => setForm({ ...form, additional_information: e.target.value })}
-                className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
-                placeholder="Any troubleshooting already attempted..."
-              />
-            </div>
-
-            {error && (
-              <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-medium text-rose-700 flex items-center gap-2">
-                <AlertTriangle size={16} />
-                {error}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={processing}
-              className="w-full rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 py-3.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition hover:opacity-95 disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {processing ? (
-                <>
-                  <RefreshCw size={18} className="animate-spin" />
-                  AI is analyzing and routing your ticket...
-                </>
-              ) : (
-                <>
-                  <Sparkles size={18} />
-                  Submit Ticket & Trigger AI Triage
-                </>
-              )}
-            </button>
-          </form>
-        </div>
-
-        {/* Live AI Analysis & Routing Results Card */}
-        <div className="space-y-6">
-          <div className="card p-6 border-2 border-blue-100 shadow-md">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-              <div className="flex items-center gap-2.5">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-blue-600 font-bold">
-                  <Sparkles size={20} />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">AI Triage Intelligence</h3>
-                  <p className="text-xs text-slate-500">Live inference & routing engine</p>
-                </div>
-              </div>
-              <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">
-                Real-time
-              </span>
-            </div>
-
-            {processing ? (
-              <div className="py-16 text-center space-y-4">
-                <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-blue-50 text-blue-600 animate-pulse">
-                  <Sparkles size={32} />
-                </div>
-                <div>
-                  <p className="text-base font-bold text-slate-900">AI is analyzing your ticket...</p>
-                  <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
-                    Tokenizing text, querying DistilBERT for category, calculating urgency vector for XGBoost, and querying KB embeddings...
-                  </p>
-                </div>
-              </div>
-            ) : result ? (
-              <div className="mt-5 space-y-5">
-                <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3.5 flex items-center gap-2.5 text-xs text-emerald-800 font-medium">
-                  <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
-                  Ticket #{result.ticket.id} successfully created, triaged, and routed!
-                </div>
-
-                {/* Classification & Priority Cards */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3.5">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Category</p>
-                    <p className="mt-1 text-lg font-bold text-slate-900">{result.analysis.category}</p>
-                    <div className="mt-2 flex items-center justify-between text-xs">
-                      <span className="text-slate-500">Confidence</span>
-                      <span className="font-bold text-blue-600">
-                        {Math.round(result.analysis.category_confidence * 100)}%
-                      </span>
-                    </div>
-                    <div className="mt-1 h-1.5 w-full rounded-full bg-slate-200 overflow-hidden">
-                      <div 
-                        className="h-full bg-blue-600 rounded-full" 
-                        style={{ width: `${Math.round(result.analysis.category_confidence * 100)}%` }}
-                      ></div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3.5">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Priority</p>
-                    <p className={`mt-1 text-lg font-black ${
-                      result.analysis.priority === 'Critical' ? 'text-rose-600' :
-                      result.analysis.priority === 'High' ? 'text-amber-600' :
-                      result.analysis.priority === 'Medium' ? 'text-blue-600' : 'text-slate-700'
-                    }`}>
-                      {result.analysis.priority}
-                    </p>
-                    <div className="mt-2 flex items-center justify-between text-xs">
-                      <span className="text-slate-500">Confidence</span>
-                      <span className="font-bold text-indigo-600">
-                        {Math.round(result.analysis.priority_confidence * 100)}%
-                      </span>
-                    </div>
-                    <div className="mt-1 h-1.5 w-full rounded-full bg-slate-200 overflow-hidden">
-                      <div 
-                        className="h-full bg-indigo-600 rounded-full" 
-                        style={{ width: `${Math.round(result.analysis.priority_confidence * 100)}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Routing Assignment */}
-                <div className="rounded-xl border border-slate-200 p-4 bg-white space-y-2 text-xs">
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-500">Assigned Team:</span>
-                    <span className="font-bold text-slate-900 text-sm">{result.routing.team}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-500">Specialist Agent:</span>
-                    <span className="font-semibold text-slate-800">{result.routing.agent}</span>
-                  </div>
-                  <div className="pt-2 border-t border-slate-100 text-slate-600">
-                    <span className="font-semibold text-slate-700">Routing Reason:</span> {result.routing.routing_reason}
-                  </div>
-                </div>
-
-                {/* Suggested Resolution & KB */}
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2 flex items-center gap-1.5">
-                    <BookOpen size={14} className="text-blue-600" />
-                    Recommended Solutions ({result.suggestions?.length || 0})
-                  </p>
-                  <div className="space-y-2">
-                    {result.suggestions?.map((item, i) => (
-                      <div key={item.id || i} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 text-xs">
-                        <div className="flex items-center justify-between font-bold text-slate-900 mb-1">
-                          <span>{i + 1}. {item.title}</span>
-                          <span className="text-blue-600 font-semibold">{item.match_score}% match</span>
-                        </div>
-                        <p className="text-slate-600 whitespace-pre-line line-clamp-3">{item.solution}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div className="pt-2 flex flex-col gap-2">
-                  <Link
-                    to={`/tickets/${result.ticket.id}`}
-                    className="w-full py-2.5 rounded-xl bg-blue-600 text-white font-semibold text-xs text-center hover:bg-blue-700 transition flex items-center justify-center gap-2"
-                  >
-                    Open Ticket #{result.ticket.id} Details <ArrowRight size={14} />
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => { setResult(null); setForm({ ...form, title: '', description: '' }); }}
-                    className="w-full py-2 rounded-xl bg-slate-100 text-slate-700 font-medium text-xs hover:bg-slate-200 transition"
-                  >
-                    Submit Another Ticket
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="py-12 text-center text-slate-400 space-y-3">
-                <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
-                  <Cpu size={24} />
-                </div>
-                <p className="text-xs text-slate-500 max-w-xs mx-auto">
-                  Fill in the incident details on the left and submit. The AI model will predict the category, evaluate urgency, route the ticket, and suggest solutions.
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </DashboardLayout>
-  );
+  const navigate = useNavigate(); const [step, setStep] = useState(1); const [form, setForm] = useState(() => makeForm(user));
+  const [attachments, setAttachments] = useState([]); const [errors, setErrors] = useState({}); const [processing, setProcessing] = useState(false); const [result, setResult] = useState(null); const [submitError, setSubmitError] = useState(''); const [clarifications, setClarifications] = useState([]);
+  const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+  const fieldClass = (key) => `w-full rounded-xl border ${errors[key] ? 'border-rose-400' : 'border-slate-300'} bg-white px-3.5 py-3 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10`;
+  const validateStep = (currentStep) => { const next = {}; if (currentStep === 1) { if (!form.title.trim()) next.title = 'Please describe the issue.'; if (form.title.length > 120) next.title = 'Use 120 characters or fewer.'; if (!form.description.trim()) next.description = 'Please tell us what happened.'; if (form.description.length > 2000) next.description = 'Use 2000 characters or fewer.'; if (!form.department) next.department = 'Please select a department.'; if (!form.device_system) next.device_system = 'Please select the affected system.'; } if (currentStep === 2) { if (!form.affected_users_range) next.affected_users_range = 'Please tell us approximately how many users are affected.'; if (!form.work_blocked) next.work_blocked = 'Please tell us whether your work is blocked.'; if (!form.business_impact) next.business_impact = 'Please select the business impact.'; if (!form.security_impact) next.security_impact = 'Please select whether this involves security or access.'; if (form.work_blocked === 'Yes' && !form.blocked_activity.trim()) next.blocked_activity = 'Please describe the blocked activity.'; if (form.security_impact === 'Yes' && !form.security_details.trim()) next.security_details = 'Please describe the security or access concern.'; if (form.deadline === 'Specific deadline' && !form.specific_deadline) next.specific_deadline = 'Please select the deadline.'; } setErrors(next); return Object.keys(next).length === 0; };
+  const improveDescription = () => { const text = form.description.trim(); if (!text) return; const cleaned = text.replace(/\s+/g, ' ').replace(/\s*([.!?])\s*/g, '$1 ').trim(); update('description', cleaned.charAt(0).toUpperCase() + cleaned.slice(1)); };
+  const clarify = () => { const text = `${form.title} ${form.description}`.toLowerCase(); const questions = []; if (/internet|network|wifi|wi-fi|vpn/.test(text)) questions.push({ question: 'Can you access all websites, or only a specific website or company application?', options: ['All websites', 'One/some websites', 'Company applications only', 'Not sure'] }); if (!form.affected_users_range) questions.push({ question: 'Is anyone else experiencing the same issue?', options: ['Yes', 'No', 'Not sure'] }); if (/internet|network|wifi|wi-fi/.test(text) && !form.device_system) questions.push({ question: 'How are you connected?', options: ['Wi-Fi', 'Ethernet', 'Mobile hotspot', 'Not sure'] }); setClarifications(questions.length ? questions : [{ question: 'What changed just before the problem started?', options: ['A password or access change', 'A software update', 'A device or network change', 'Nothing that I know of'] }]); };
+  const handleFiles = (event) => { const selected = Array.from(event.target.files || []).filter((file) => file.size <= 10 * 1024 * 1024 && fileExtensions.includes(file.name.split('.').pop().toLowerCase())); setAttachments((current) => [...current, ...selected].slice(0, 5)); event.target.value = ''; };
+  const submit = async () => { if (!validateStep(2)) { setStep(2); return; } setSubmitError(''); setProcessing(true); const selectedRange = affectedRanges.find((range) => range.value === form.affected_users_range); const payload = { title: form.title.trim(), description: form.description.trim(), user_name: user?.name, email: user?.email, department: form.department, user_selected_category: form.user_selected_category && form.user_selected_category !== "I don't know" ? form.user_selected_category : null, device_system: form.device_system === 'Other' ? form.device_other : form.device_system, location: form.location === 'Other' ? form.location_other : form.location, error_message: form.error_message.trim() || null, affected_users: Number(form.exact_affected_users) || selectedRange?.count || 1, affected_users_range: form.affected_users_range, work_blocked: form.work_blocked === 'Yes', blocked_activity: form.blocked_activity.trim() || null, business_impact: form.business_impact, security_impact: form.security_impact, security_details: form.security_details.trim() || null, system_criticality: form.system_criticality, started_at: form.started_at, deadline: form.deadline === 'Specific deadline' ? form.specific_deadline : form.deadline, user_reported_urgency: form.user_reported_urgency, downtime: form.work_blocked === 'Yes' ? 'Total Outage' : form.work_blocked === 'Partially' ? 'Partial' : 'None' }; try { const response = await createTicket(payload); await Promise.all(attachments.map((file) => uploadAttachment(response.data.ticket.id, file))); setResult(response.data); } catch (error) { setSubmitError(error.response?.data?.error || "We couldn't analyze your ticket right now. Please try again."); } finally { setProcessing(false); } };
+  const saveDraft = () => { localStorage.setItem('helpdesk-ticket-draft', JSON.stringify(form)); setSubmitError('Draft saved on this device.'); };
+  return <DashboardLayout user={user} title="Create Support Ticket"><div className="mx-auto max-w-7xl"><div className="mb-7 flex flex-wrap items-start justify-between gap-4"><div><div className="mb-2 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700"><Sparkles size={14} /> AI-Assisted Triage</div><h1 className="text-3xl font-black tracking-tight text-slate-950">How can we help you?</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Tell us what you're experiencing. Our AI will analyze your request, determine its priority, route it to the right support team, and suggest possible solutions.</p></div><div className="hidden items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500 sm:flex"><LockKeyhole size={15} className="text-emerald-600" />Your information is private</div></div><div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.8fr)]"><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">{!result && <Progress step={step} />}{result ? <div className="py-5"><div className="mb-5 flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700"><CheckCircle2 size={21} /></div><div><h2 className="text-xl font-bold text-slate-950">Request received</h2><p className="text-sm text-slate-500">Your support request and attachments have been sent.</p></div></div><Link to={`/tickets/${result.ticket.id}`} className="inline-flex items-center gap-2 text-sm font-semibold text-blue-600">Continue to ticket details <ArrowRight size={16} /></Link></div> : <><div className="space-y-6">{step === 1 && <><div><p className="text-xs font-bold uppercase tracking-wider text-blue-600">Step 1 of 3</p><h2 className="mt-1 text-xl font-bold text-slate-950">Tell us about the problem</h2><p className="mt-1 text-sm text-slate-500">Start with the details you know. You don't need technical terminology.</p></div><Field label="What is the problem?" required hint="Use a short description of the issue." error={errors.title}><input maxLength={120} value={form.title} onChange={(event) => update('title', event.target.value)} className={fieldClass('title')} placeholder="Example: VPN is not connecting to the company network" /><div className="mt-1 text-right text-xs text-slate-400">{form.title.length}/120</div></Field><Field label="Tell us what happened" required hint="For example: I am unable to connect to the company VPN since 10:30 AM. I receive a connection timeout error." error={errors.description}><textarea maxLength={2000} rows={7} value={form.description} onChange={(event) => update('description', event.target.value)} className={`${fieldClass('description')} resize-y`} placeholder="Describe the problem in your own words. Include what you were trying to do, what happened, and any error message you saw." /><div className="mt-2 flex items-center justify-between"><span className="text-xs text-slate-400">{form.description.length}/2000</span><button type="button" onClick={improveDescription} className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600"><Lightbulb size={14} /> Improve description</button></div></Field><div className="grid gap-5 sm:grid-cols-2"><Field label="Department" required error={errors.department}><SelectField value={form.department} onChange={(value) => update('department', value)} required><option value="">Choose a department</option>{departments.map((item) => <option key={item}>{item}</option>)}</SelectField></Field><Field label="Affected system or device" required error={errors.device_system}><SelectField value={form.device_system} onChange={(value) => update('device_system', value)} required><option value="">Choose a system</option>{systems.map((item) => <option key={item}>{item}</option>)}</SelectField></Field></div>{form.device_system === 'Other' && <Field label="Which system or device?" required><input value={form.device_other} onChange={(event) => update('device_other', event.target.value)} className={fieldClass('device_other')} placeholder="Tell us what is affected" /></Field>}<div className="grid gap-5 sm:grid-cols-2"><Field label="Location" hint="A general location is enough; no exact address needed."><SelectField value={form.location} onChange={(value) => update('location', value)}><option value="">Choose a location</option>{locations.map((item) => <option key={item}>{item}</option>)}</SelectField></Field><Field label="Category" hint="Optional. Leave it to AI if you're unsure."><SelectField value={form.user_selected_category} onChange={(value) => update('user_selected_category', value)}><option value="">AI will determine the category</option>{categories.map((item) => <option key={item}>{item}</option>)}</SelectField></Field></div>{form.location === 'Other' && <Field label="Which location?"><input value={form.location_other} onChange={(event) => update('location_other', event.target.value)} className={fieldClass('location_other')} placeholder="Office, site, or general area" /></Field>}<Field label="Did you see an error message?" hint="This is useful for text analysis, but optional."><textarea rows={3} value={form.error_message} onChange={(event) => update('error_message', event.target.value)} className={`${fieldClass('error_message')} resize-y`} placeholder="Paste the error message here." /></Field><div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4"><div className="flex items-start gap-3"><CircleHelp size={18} className="mt-0.5 shrink-0 text-blue-600" /><div><p className="text-sm font-semibold text-blue-950">Need help describing your issue?</p><p className="mt-1 text-xs leading-5 text-blue-800">Our assistant can ask a few questions to make your ticket clearer without inventing information.</p><button type="button" onClick={clarify} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs font-bold text-blue-700 shadow-sm ring-1 ring-blue-200">Help me clarify <MessageSquareText size={14} /></button></div></div>{clarifications.length > 0 && <div className="mt-3 space-y-3">{clarifications.map((item, index) => <div key={index} className="rounded-xl border border-blue-100 bg-white p-3"><p className="text-sm font-medium text-slate-800">{item.question}</p><div className="mt-2 flex flex-wrap gap-2">{item.options.map((option) => <button type="button" key={option} onClick={() => setClarifications((items) => items.filter((_, itemIndex) => itemIndex !== index))} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:border-blue-400 hover:text-blue-700">{option}</button>)}</div></div>)}</div>}</div></>}{step === 2 && <><div><p className="text-xs font-bold uppercase tracking-wider text-blue-600">Step 2 of 3</p><h2 className="mt-1 text-xl font-bold text-slate-950">Help us understand the impact</h2><p className="mt-1 text-sm text-slate-500">These questions help us understand how urgently your issue needs attention.</p></div><Field label="Who is affected?" required error={errors.affected_users_range}><OptionCards name="affected-range" value={form.affected_users_range} onChange={(value) => update('affected_users_range', value)} options={['Only me', 'A few people', 'My team', 'Multiple teams', 'Most/all users', "I'm not sure"]} descriptions={{ 'Only me': 'Just my account or device', 'A few people': 'A small group of colleagues', 'My team': 'People in my immediate team', 'Multiple teams': 'Several departments or teams', 'Most/all users': 'A broad or organization-wide issue', "I'm not sure": 'I do not know yet' }} /></Field><Field label="Approximately how many people are affected?" required error={errors.affected_users_range}><div className="grid grid-cols-3 gap-2 sm:grid-cols-6">{affectedRanges.map((range) => <button type="button" key={range.value} onClick={() => { update('affected_users_range', range.value); update('affected_users', range.count); }} className={`rounded-xl border px-2 py-3 text-sm font-semibold ${form.affected_users_range === range.value ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600 hover:border-blue-300'}`}>{range.label}</button>)}</div><input type="number" min="1" value={form.exact_affected_users} onChange={(event) => update('exact_affected_users', event.target.value)} className={`${fieldClass('exact_affected_users')} mt-3`} placeholder="Optional exact number" /></Field><Field label="Is this issue preventing you from doing your work?" required error={errors.work_blocked}><OptionCards name="work-blocked" value={form.work_blocked} onChange={(value) => update('work_blocked', value)} options={['No', 'Partially', 'Yes']} descriptions={{ No: 'Work can continue normally', Partially: 'Some tasks are still possible', Yes: 'A necessary task is stopped' }} /></Field>{form.work_blocked === 'Yes' && <Field label="What task or business activity is blocked?" required error={errors.blocked_activity}><input value={form.blocked_activity} onChange={(event) => update('blocked_activity', event.target.value)} className={fieldClass('blocked_activity')} placeholder="Example: Processing customer orders" /></Field>}<Field label="How much does this affect your work or business?" required error={errors.business_impact}><OptionCards name="business-impact" value={form.business_impact} onChange={(value) => update('business_impact', value)} options={['Low', 'Moderate', 'High', 'Business-critical', 'Not sure']} descriptions={{ Low: 'Small inconvenience; work can continue.', Moderate: 'Some work is delayed.', High: 'Important work is significantly affected.', 'Business-critical': 'Critical operations are stopped or severely affected.', 'Not sure': 'I need help assessing the impact.' }} /></Field><div className="grid gap-6 sm:grid-cols-2"><Field label="Does this involve a security or access concern?" required error={errors.security_impact}><OptionCards name="security-impact" value={form.security_impact} onChange={(value) => update('security_impact', value)} options={['No', 'Yes', 'Not sure']} /></Field><Field label="What type of system is affected?"><SelectField value={form.system_criticality} onChange={(value) => update('system_criticality', value)}><option value="">Choose one</option>{['Personal/non-critical', 'Department system', 'Business-critical system', 'Customer-facing system', 'Production system', 'Not sure'].map((item) => <option key={item}>{item}</option>)}</SelectField></Field></div>{form.security_impact === 'Yes' && <Field label="Please briefly describe the security/access concern." required error={errors.security_details}><textarea rows={3} value={form.security_details} onChange={(event) => update('security_details', event.target.value)} className={`${fieldClass('security_details')} resize-y`} placeholder="For example: I think my account may have been accessed by someone else." /></Field>}<div className="grid gap-6 sm:grid-cols-2"><Field label="When did the problem start?"><SelectField value={form.started_at} onChange={(value) => update('started_at', value)}><option value="">Choose one</option>{['Just now', 'Within the last hour', 'Today', 'Yesterday', 'Several days ago', 'More than a week ago', 'Not sure'].map((item) => <option key={item}>{item}</option>)}</SelectField></Field><Field label="Do you have a deadline?"><SelectField value={form.deadline} onChange={(value) => update('deadline', value)}>{['No deadline', 'Within 24 hours', 'Within 2-3 days', 'Within a week', 'Specific deadline'].map((item) => <option key={item}>{item}</option>)}</SelectField></Field></div>{form.deadline === 'Specific deadline' && <Field label="Specific deadline" required error={errors.specific_deadline}><input type="datetime-local" value={form.specific_deadline} onChange={(event) => update('specific_deadline', event.target.value)} className={fieldClass('specific_deadline')} /></Field>}<Field label="How urgently does this feel to you?" hint="This is your reported urgency. The AI predicts priority independently using all available signals."><div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{['Low', 'Medium', 'High', 'Critical'].map((item) => <button type="button" key={item} onClick={() => update('user_reported_urgency', item)} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${form.user_reported_urgency === item ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600 hover:border-blue-300'}`}>{item}</button>)}</div></Field></>}{step === 3 && <><div><p className="text-xs font-bold uppercase tracking-wider text-blue-600">Step 3 of 3</p><h2 className="mt-1 text-xl font-bold text-slate-950">Review your support request</h2><p className="mt-1 text-sm text-slate-500">Check the details before sending them to the support team.</p></div><div className="space-y-3">{[['Problem', `${form.title}\n${form.description}`, 1], ['Context', `${form.department} Â· ${form.device_system}${form.location ? ` Â· ${form.location}` : ''}`, 1], ['Impact', `${form.affected_users_range || 'Not set'} affected Â· ${form.business_impact || 'Not set'} impact Â· Work blocked: ${form.work_blocked || 'Not set'}`, 2], ['Urgency', `${form.user_reported_urgency} reported Â· Started: ${form.started_at || 'Not specified'} Â· ${form.deadline}`, 2]].map(([label, value, target]) => <div key={label} className="flex items-start justify-between gap-4 rounded-xl border border-slate-200 p-4"><div><p className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-1 whitespace-pre-line text-sm leading-6 text-slate-800">{value}</p></div><button type="button" onClick={() => setStep(target)} className="inline-flex shrink-0 items-center gap-1 text-xs font-bold text-blue-600"><Pencil size={13} /> Edit</button></div>)}</div><div><p className="mb-2 text-sm font-semibold text-slate-800">Attach supporting files <span className="font-normal text-slate-400">(optional)</span></p><label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm font-semibold text-slate-600 hover:border-blue-400 hover:text-blue-700"><FileUp size={18} /> Choose files<input type="file" multiple accept=".png,.jpg,.jpeg,.pdf,.txt,.log,.csv" onChange={handleFiles} className="sr-only" /></label><p className="mt-2 text-xs text-slate-500">PNG, JPG, JPEG, PDF, TXT, LOG, or CSV - up to 10 MB each</p>{attachments.length > 0 && <div className="mt-3 space-y-2">{attachments.map((file, index) => <div key={`${file.name}-${index}`} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-xs"><span className="flex min-w-0 items-center gap-2"><FileText size={14} className="shrink-0 text-blue-600" /><span className="truncate">{file.name}</span><span className="shrink-0 text-slate-400">{(file.size / 1024 / 1024).toFixed(1)} MB</span></span><button type="button" onClick={() => setAttachments((items) => items.filter((_, itemIndex) => itemIndex !== index))} className="p-1 text-slate-400 hover:text-rose-600" title={`Remove ${file.name}`}><X size={15} /></button></div>)}</div>}</div><label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700"><input type="checkbox" id="confirm-ticket" className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" required /><span>I confirm that the information provided is accurate.</span></label></>}{submitError && <div className={`flex items-start gap-2 rounded-xl border px-4 py-3 text-sm ${submitError.startsWith('Draft') ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-rose-200 bg-rose-50 text-rose-700'}`} role="alert"><AlertTriangle size={17} className="mt-0.5 shrink-0" />{submitError}</div>}<div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-5"><button type="button" onClick={() => step === 1 ? navigate(-1) : setStep((current) => current - 1)} className="inline-flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100"><ArrowLeft size={16} /> {step === 1 ? 'Back' : 'Previous'}</button><div className="flex items-center gap-2">{step === 3 && <button type="button" onClick={saveDraft} className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Save as Draft</button>}{step < 3 ? <button type="button" onClick={() => { if (validateStep(step)) setStep((current) => current + 1); }} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700">Continue <ArrowRight size={16} /></button> : <button type="button" onClick={submit} disabled={processing} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60">{processing ? <><LoaderCircle size={17} className="animate-spin" /> Submitting your ticket...</> : <><Sparkles size={17} /> Submit Support Ticket</>}</button>}</div></div></div></>}
+          </div><aside className="space-y-4 xl:sticky xl:top-24"><TriagePreview result={result} processing={processing} /><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h3 className="flex items-center gap-2 text-sm font-bold text-slate-900"><Users size={16} className="text-blue-600" /> Contact information</h3><div className="mt-4 space-y-3 text-sm"><div><p className="text-xs text-slate-500">Name</p><p className="font-medium text-slate-800">{user?.name || 'Demo User'}</p></div><div><p className="text-xs text-slate-500">Email</p><p className="font-medium text-slate-800">{user?.email || 'user@demo.com'}</p></div><div><p className="text-xs text-slate-500">Department</p><p className="font-medium text-slate-800">{user?.department || form.department}</p></div></div><p className="mt-4 flex items-start gap-2 text-xs leading-5 text-slate-500"><Info size={14} className="mt-0.5 shrink-0" />Update contact details in Profile & Settings.</p></div><div className="rounded-2xl border border-slate-200 bg-slate-50 p-5"><div className="flex items-center gap-2"><Clock3 size={16} className="text-blue-600" /><p className="text-sm font-bold text-slate-900">What happens next?</p></div><p className="mt-2 text-xs leading-5 text-slate-600">Your request is stored first, then analyzed and routed using the support system's configured models and rules.</p></div></aside></div></div></DashboardLayout>;
 }

@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 import json
+import os
+from pathlib import Path
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
 from app import db
@@ -25,6 +27,22 @@ def create_ticket():
     description = data.get('description', '').strip()
     if not title or not description:
         return jsonify({'error': 'Title and description are required'}), 400
+    if len(title) > 120 or len(description) > 2000:
+        return jsonify({'error': 'Title must be 120 characters or fewer and description 2000 characters or fewer'}), 400
+    required_fields = {
+        'department': 'Department is required',
+        'device_system': 'Affected system is required',
+        'business_impact': 'Business impact is required',
+        'affected_users_range': 'Affected user information is required',
+    }
+    for field, message in required_fields.items():
+        if not str(data.get(field, '')).strip():
+            return jsonify({'error': message}), 400
+
+    try:
+        affected_users = int(data.get('affected_users') or 1)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Affected users must be a valid number'}), 400
 
     created_by = data.get('email') or data.get('user_name') or 'guest@example.com'
 
@@ -36,13 +54,24 @@ def create_ticket():
         description=description,
         created_by=created_by,
         department=data.get('department', 'General'),
-        device=data.get('device'),
+        device=data.get('device_system') or data.get('device'),
         location=data.get('location'),
+        error_message=data.get('error_message'),
         additional_info=data.get('additional_information') or data.get('additional_info'),
         email=data.get('email', created_by),
-        affected_users=int(data.get('affected_users') or 1),
+        affected_users=affected_users,
+        affected_users_range=data.get('affected_users_range'),
         business_impact=data.get('business_impact', 'Low'),
         downtime=data.get('downtime', 'None'),
+        user_selected_category=data.get('user_selected_category') or data.get('category'),
+        work_blocked=bool(data.get('work_blocked', False)),
+        blocked_activity=data.get('blocked_activity'),
+        security_impact=data.get('security_impact'),
+        security_details=data.get('security_details'),
+        system_criticality=data.get('system_criticality'),
+        started_at=data.get('started_at'),
+        deadline=data.get('deadline'),
+        user_reported_urgency=data.get('user_reported_urgency'),
         status='AI Processing'
     )
     db.session.add(ticket)
@@ -58,7 +87,7 @@ def create_ticket():
     })
 
     # Optional manual category override
-    manual_category = data.get('category')
+    manual_category = data.get('user_selected_category') or data.get('category')
     chosen_category = manual_category if manual_category and manual_category.strip() else analysis['category']
 
     ticket.predicted_category = analysis['category']
@@ -111,6 +140,42 @@ def create_ticket():
         'suggestions': suggestions,
         'message': 'AI analysis and intelligent routing complete.'
     }), 201
+
+
+@ticket_bp.route('/tickets/<int:ticket_id>/attachments', methods=['POST'])
+def upload_attachment(ticket_id):
+    ticket = Ticket.query.get_or_404(ticket_id)
+    file = request.files.get('file')
+    if not file or not file.filename:
+        return jsonify({'error': 'A file is required'}), 400
+
+    allowed_extensions = {'png', 'jpg', 'jpeg', 'pdf', 'txt', 'log', 'csv'}
+    extension = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+    if extension not in allowed_extensions:
+        return jsonify({'error': 'Supported files: PNG, JPG, JPEG, PDF, TXT, LOG, CSV'}), 400
+
+    max_size = int(os.getenv('MAX_ATTACHMENT_SIZE', 10 * 1024 * 1024))
+    content = file.read(max_size + 1)
+    if len(content) > max_size:
+        return jsonify({'error': 'File exceeds the maximum allowed size'}), 413
+
+    upload_dir = Path(os.getenv('UPLOAD_DIR', 'instance/uploads'))
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = f"ticket-{ticket.id}-{Path(file.filename).name}"
+    destination = upload_dir / safe_name
+    destination.write_bytes(content)
+
+    attachment = Attachment(
+        ticket_id=ticket.id,
+        filename=Path(file.filename).name,
+        file_path=str(destination),
+        file_size=len(content),
+        content_type=file.content_type or 'application/octet-stream',
+        uploaded_by=ticket.email,
+    )
+    db.session.add(attachment)
+    db.session.commit()
+    return jsonify({'attachment': attachment.to_dict()}), 201
 
 
 @ticket_bp.route('/tickets', methods=['GET'])
@@ -178,6 +243,7 @@ def get_ticket(ticket_id):
         'comments': [c.to_dict() for c in comments],
         'history': [h.to_dict() for h in history],
         'predictions': [p.to_dict() for p in predictions],
+        'attachments': [a.to_dict() for a in ticket.attachments.order_by(Attachment.created_at.asc()).all()],
         'suggestions': suggestions,
         'ai_analysis': ai_analysis_dict
     }), 200

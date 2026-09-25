@@ -6,6 +6,7 @@ from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from flask_sqlalchemy import SQLAlchemy
 from dotenv import load_dotenv
+from sqlalchemy import inspect
 
 from .config import get_config
 
@@ -79,9 +80,32 @@ def create_app():
 
     with app.app_context():
         db.create_all()
+        ensure_ticket_columns()
         seed_data()
 
     return app
+
+
+def ensure_ticket_columns():
+    """Add fields introduced after the original SQLite demo schema."""
+    required_columns = {
+        'error_message': 'TEXT',
+        'user_selected_category': 'VARCHAR(80)',
+        'affected_users_range': 'VARCHAR(40)',
+        'work_blocked': 'BOOLEAN DEFAULT FALSE',
+        'blocked_activity': 'VARCHAR(255)',
+        'security_impact': 'VARCHAR(40)',
+        'security_details': 'TEXT',
+        'system_criticality': 'VARCHAR(80)',
+        'started_at': 'VARCHAR(80)',
+        'deadline': 'VARCHAR(80)',
+        'user_reported_urgency': 'VARCHAR(40)',
+    }
+    existing_columns = {column['name'] for column in inspect(db.engine).get_columns('tickets')}
+    for name, definition in required_columns.items():
+        if name not in existing_columns:
+            db.session.execute(db.text(f'ALTER TABLE tickets ADD COLUMN {name} {definition}'))
+    db.session.commit()
 
 
 def seed_data():

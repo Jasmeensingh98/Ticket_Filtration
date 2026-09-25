@@ -48,7 +48,18 @@ CREATE TABLE IF NOT EXISTS tickets (
     email VARCHAR(150),
     affected_users INTEGER DEFAULT 1,
     business_impact VARCHAR(80) DEFAULT 'Low',
-    downtime VARCHAR(80) DEFAULT 'None'
+    downtime VARCHAR(80) DEFAULT 'None',
+    error_message TEXT,
+    user_selected_category VARCHAR(80),
+    affected_users_range VARCHAR(40),
+    work_blocked BOOLEAN DEFAULT FALSE,
+    blocked_activity VARCHAR(255),
+    security_impact VARCHAR(40),
+    security_details TEXT,
+    system_criticality VARCHAR(80),
+    started_at VARCHAR(80),
+    deadline VARCHAR(80),
+    user_reported_urgency VARCHAR(40)
 );
 
 CREATE TABLE IF NOT EXISTS ticket_predictions (
