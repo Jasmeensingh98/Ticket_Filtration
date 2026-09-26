@@ -103,6 +103,57 @@ npm run dev
 
 The frontend will be available at http://localhost:5173.
 
+## Production Deployment
+
+The current backend is PostgreSQL-ready and should be deployed with a managed PostgreSQL database. Do not use the local SQLite fallback for production.
+
+### Backend
+
+Deploy the `backend` directory as a Python web service on Render or Railway.
+
+```text
+Build command: pip install -r requirements.txt
+Start command: gunicorn --bind 0.0.0.0:$PORT run:app
+```
+
+Set these backend environment variables in the hosting provider:
+
+```env
+DATABASE_URL=your-managed-postgresql-connection-string
+JWT_SECRET=replace-with-a-long-random-secret
+SECRET_KEY=replace-with-a-different-long-random-secret
+DEMO_MODE=true
+CORS_ORIGINS=https://your-frontend-domain.com
+DEBUG=false
+MAX_CONTENT_LENGTH=12582912
+```
+
+After deployment, verify `https://your-backend-domain.com/api/health` returns a JSON response with `"status": "ok"`.
+
+### Frontend
+
+Deploy the `frontend` directory as a Vercel or Netlify site.
+
+```text
+Build command: npm run build
+Output directory: dist
+```
+
+Set this frontend environment variable before building:
+
+```env
+VITE_API_BASE_URL=https://your-backend-domain.com/api
+```
+
+Configure the frontend host to rewrite unknown paths to `index.html` so React Router pages continue to work after a browser refresh. After the frontend has a public URL, update the backend `CORS_ORIGINS` value to that exact URL and redeploy the backend.
+
+### Production considerations
+
+- Keep `.env` out of source control and configure secrets in the hosting provider.
+- The current attachment endpoint writes files to the local `instance/uploads` directory. Use persistent disk storage or object storage such as S3 before relying on production attachments.
+- Set `DEMO_MODE=false` only after production model artifacts or `MODEL_API_URL` are configured.
+- From the `backend` directory, run `python verify_app.py` against the production-style environment before switching the frontend to the live API.
+
 ## Demo credentials
 
 - User: user@demo.com / password
