@@ -28,6 +28,10 @@ token = login_data['token']
 ticket_payload = {
     'title': 'VPN not connecting',
     'description': 'Employee cannot access remote network from home office and keeps getting authentication failures.',
+    'department': 'IT Support',
+    'device_system': 'Corporate VPN',
+    'business_impact': 'High',
+    'affected_users_range': '1-10',
     'priority': 'High',
     'category': 'Network',
     'created_by': 'tickettester2@example.com'
