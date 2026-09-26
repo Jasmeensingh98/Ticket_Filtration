@@ -20,7 +20,7 @@ def create_app():
     app = Flask(__name__)
     app.config.update(get_config())
 
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    CORS(app, resources={r"/api/*": {"origins": app.config['CORS_ORIGINS']}})
     db.init_app(app)
     jwt.init_app(app)
 
